@@ -1,0 +1,59 @@
+# XcodeGen 工程描述（纯文本，可审阅）—— 参照 aiinterview/ios 的组织方式
+# 生成 .xcodeproj：  brew install xcodegen && cd macos && xcodegen generate
+name: Aidb
+options:
+  bundleIdPrefix: com.aidb
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MARKETING_VERSION: "0.2.0"
+    CURRENT_PROJECT_VERSION: "1"
+    ENABLE_USER_SCRIPT_SANDBOXING: "NO"
+    CODE_SIGN_STYLE: Automatic
+    # 开发者个人 Team（与 iOS 工程同一个免费 Personal Team）
+    DEVELOPMENT_TEAM: K82UDVDKF7
+packages:
+  MySQLNIO:
+    url: https://github.com/vapor/mysql-nio.git
+    from: 1.9.0
+targets:
+  Aidb:
+    type: application
+    platform: macOS
+    sources:
+      - Aidb
+    dependencies:
+      - package: MySQLNIO
+        product: MySQLNIO
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.aidb.mac
+        INFOPLIST_FILE: Aidb/Resources/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Aidb/Aidb.entitlements
+        ENABLE_HARDENED_RUNTIME: "NO"
+  AidbTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - Tests
+      # 被测核心逻辑直接编进测试 target（同一模块，无需 @testable）
+      - path: Aidb/Drivers/SqlSafety.swift
+      - path: Aidb/Export/CSV.swift
+      - path: Aidb/Models/GridValue.swift
+      - path: Aidb/Models/ConnectionProfile.swift
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: "YES"
+schemes:
+  Aidb:
+    build:
+      targets:
+        Aidb: all
+    run:
+      config: Debug
+    test:
+      targets:
+        - AidbTests

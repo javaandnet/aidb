@@ -1,0 +1,7 @@
+# XcodeGen 生成物（源文件是 project.yml，重新生成即可）
+Aidb.xcodeproj/
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+.build/

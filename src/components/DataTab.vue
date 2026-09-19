@@ -31,6 +31,8 @@ const newRows = ref<Record<string, any>[]>([])
 const deletedIdx = ref(new Set<number>())
 const editingCell = ref<{ r: number; c: string } | null>(null)
 const editBuffer = ref('')
+// 选中行（viewRows 下标），行内任意点击选中整行
+const selectedRow = ref<number | null>(null)
 
 // 虚拟滚动
 const scrollTop = ref(0)
@@ -104,9 +106,16 @@ function display(v: any): string {
 
 function startEdit(r: number, col: string) {
   if (!editable.value) return
+  // 已在编辑该格时忽略（避免点击 input 冒泡重置输入）
+  if (editingCell.value && editingCell.value.r === r && editingCell.value.c === col) return
   const v = cellValue(r, col)
   editingCell.value = { r, c: col }
   editBuffer.value = v === null || v === undefined ? '' : String(v)
+}
+
+function onCellClick(r: number, col: string) {
+  selectedRow.value = r
+  startEdit(r, col)
 }
 
 function commitEdit() {
@@ -136,11 +145,29 @@ function addRow() {
   newRows.value.push({})
 }
 
+/// 复制选中行：跳过单列整型主键（让库自增），仅复制原始值
+function duplicateRow() {
+  if (selectedRow.value === null || !editable.value) return
+  const row = viewRows.value[selectedRow.value]
+  if (!row) return
+  const obj: Record<string, any> = {}
+  columns.value.forEach((c: ColumnInfo) => {
+    const skipPk = pkCols.value.length === 1 && c.pkPos != null && /int/i.test(c.dataType)
+    if (skipPk) return
+    const v = cellValue(selectedRow.value!, c.name)
+    if (v === null || v === undefined) return
+    if (typeof v === 'object') return // blob/JSON 不复制
+    obj[c.name] = v
+  })
+  newRows.value.push(obj)
+}
+
 function markDelete(r: number) {
   const row = viewRows.value[r]
   if (!row) return
   if (row.kind === 'new') {
     newRows.value.splice(row.idx, 1)
+    if (selectedRow.value === r) selectedRow.value = null
   } else {
     if (deletedIdx.value.has(row.idx)) deletedIdx.value.delete(row.idx)
     else deletedIdx.value.add(row.idx)
@@ -168,6 +195,8 @@ async function load() {
   if (!props.tab.connId || !props.tab.table) return
   loading.value = true
   error.value = ''
+  selectedRow.value = null
+  editingCell.value = null
   try {
     columns.value = await conn.columnsOf(props.tab.table)
     page.value = await api.queryTable(props.tab.connId, props.tab.database, props.tab.table, {
@@ -218,6 +247,8 @@ function discardEdits() {
   edits.clear()
   newRows.value = []
   deletedIdx.value = new Set()
+  editingCell.value = null
+  selectedRow.value = null
 }
 
 const dirtyCount = computed(() => edits.size + newRows.value.length + deletedIdx.value.size)
@@ -282,6 +313,14 @@ function onKeydown(e: KeyboardEvent) {
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
     e.preventDefault()
     saveChanges()
+    return
+  }
+  // Delete 键删除/恢复选中行（编辑中或焦点在输入框时不拦截）
+  if (e.key === 'Delete' && selectedRow.value !== null && !editingCell.value && editable.value) {
+    const t = e.target as HTMLElement | null
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+    e.preventDefault()
+    markDelete(selectedRow.value)
   }
 }
 
@@ -317,6 +356,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       <button class="primary" :disabled="!dirtyCount" @click="saveChanges">保存 ⌘S</button>
       <span class="vsep"></span>
       <button :disabled="!editable" @click="addRow">+ 行</button>
+      <button :disabled="!editable || selectedRow === null" @click="duplicateRow" title="复制选中行为新增行">复制行</button>
+      <button
+        class="danger"
+        :disabled="selectedRow === null"
+        @click="selectedRow !== null && markDelete(selectedRow)"
+      >{{ selectedRow !== null && viewRows[selectedRow]?.deleted ? '恢复选中行' : '删除选中行' }}</button>
       <button @click="showImport = true" :disabled="!editable">导入…</button>
       <button :disabled="!page" @click="exportAs('csv')">导出CSV</button>
       <button :disabled="!page" @click="exportAs('json')">导出JSON</button>
@@ -346,7 +391,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           <div
             :key="'rn' + (startIdx + wi)"
             class="gcell rownum"
-            :class="{ del: row.deleted, new: row.kind === 'new' }"
+            :class="{ del: row.deleted, new: row.kind === 'new', sel: selectedRow === startIdx + wi }"
+            @click="selectedRow = startIdx + wi"
           >{{ row.kind === 'new' ? '+' : startIdx + wi + 1 + offset }}</div>
           <div
             v-for="c in columns"
@@ -356,9 +402,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
               nullv: cellValue(startIdx + wi, c.name) === null || cellValue(startIdx + wi, c.name) === undefined,
               dirty: isDirty(startIdx + wi, c.name),
               deleted: row.deleted,
+              sel: selectedRow === startIdx + wi,
               blob: page?.blobColumns?.includes(colNames.indexOf(c.name)),
             }"
-            @dblclick="startEdit(startIdx + wi, c.name)"
+            @click="onCellClick(startIdx + wi, c.name)"
           >
             <template v-if="editingCell && editingCell.r === startIdx + wi && editingCell.c === c.name">
               <input
@@ -372,7 +419,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             </template>
             <template v-else>{{ display(cellValue(startIdx + wi, c.name)) }}</template>
           </div>
-          <div class="gcell ops">
+          <div class="gcell ops" :class="{ sel: selectedRow === startIdx + wi }">
             <button class="mini danger" @click="markDelete(startIdx + wi)">
               {{ row.deleted ? '恢复' : '删除' }}
             </button>
@@ -437,9 +484,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 .gcell.head .pk { color: var(--yellow); }
 .dtype { color: var(--text-dim); font-size: 10px; margin-left: 6px; }
 .oinfo { margin-left: 4px; color: var(--accent); }
-.rownum { color: var(--text-dim); text-align: right; background: var(--bg-panel); position: sticky; left: 0; z-index: 2; }
+.rownum { color: var(--text-dim); text-align: right; background: var(--bg-panel); position: sticky; left: 0; z-index: 2; cursor: pointer; }
 .rownum.new { color: var(--green); }
 .rownum.del { color: var(--red); }
+.gcell.sel { background: rgba(97, 175, 254, 0.10); }
+.gcell.rownum.sel { background: rgba(97, 175, 254, 0.22); color: var(--accent); }
+.gcell.dirty.sel { background: rgba(229, 192, 123, 0.20); }
 .gcell.nullv { color: var(--text-dim); font-style: italic; }
 .gcell.dirty { background: rgba(229, 192, 123, 0.13); box-shadow: inset 2px 0 0 var(--yellow); }
 .gcell.deleted { opacity: 0.4; text-decoration: line-through; }
