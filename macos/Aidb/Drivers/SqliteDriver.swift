@@ -10,6 +10,11 @@ final class SqliteDriver: DbDriver {
 
     init(path: String) throws {
         self.path = path
+        // 与 Tauri 版语义一致：文件不存在则新建；但 sqlite 只能建文件不能建目录，先补齐父目录
+        let parent = (path as NSString).deletingLastPathComponent
+        if !parent.isEmpty && !FileManager.default.fileExists(atPath: parent) {
+            try FileManager.default.createDirectory(atPath: parent, withIntermediateDirectories: true)
+        }
         var handle: OpaquePointer?
         let rc = sqlite3_open_v2(path, &handle, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nil)
         guard rc == SQLITE_OK, handle != nil else {

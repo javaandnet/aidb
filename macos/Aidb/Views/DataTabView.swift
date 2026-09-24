@@ -121,6 +121,8 @@ struct DataTabView: View {
                     Divider()
                 }
             }
+            // 底部留白：macOS overlay 滚动条悬浮在内容上，不留行会被盖住末行
+            .padding(.bottom, 16)
         }
         .overlay {
             if model.loading {
@@ -211,7 +213,14 @@ struct DataTabView: View {
                 .focused($focusedCell, equals: key)
                 .frame(width: colWidth(c), alignment: .leading)
                 .padding(.horizontal, 6)
+                // 焦点必须在 TextField 挂载后设置，否则抢不到第一响应者
+                .onAppear { focusedCell = key }
                 .onSubmit { model.commitEdit(row: r, col: c.name, text: editingText) }
+                .onExitCommand {
+                    // ESC 取消编辑（editingCell 置空后本视图移除，不会触发 commit）
+                    model.editingCell = nil
+                    focusedCell = nil
+                }
                 .onChange(of: focusedCell) { newValue in
                     if newValue != key, case let (er, ec)? = model.editingCell, er == r, ec == c.name {
                         model.commitEdit(row: r, col: c.name, text: editingText)
@@ -233,7 +242,7 @@ struct DataTabView: View {
                     guard model.editable, v.textValue != nil || v.isNull else { return }
                     editingText = v.isNull ? "" : v.display
                     model.editingCell = (r, c.name)
-                    focusedCell = key
+                    // 不在此处设 focusedCell：视图未挂载，由 TextField.onAppear 接手
                 }
         }
     }

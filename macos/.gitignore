@@ -5,3 +5,5 @@ DerivedData/
 *.xcuserstate
 xcuserdata/
 .build/
+# 打包产物
+*.dmg

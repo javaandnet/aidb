@@ -79,6 +79,12 @@ struct ConnectionManagerView: View {
                 }
             }
             Spacer()
+            if let msg = testMessage {
+                Text(msg).font(.callout)
+                    .foregroundStyle(msg.hasPrefix("✓") ? Color.green : Color.red)
+                    .textSelection(.enabled)
+                    .padding(.bottom, 6)
+            }
             HStack {
                 Button("关闭") { dismiss() }
                 Spacer()
@@ -256,8 +262,12 @@ struct ConnectionManagerView: View {
         app.saveProfile(profile, password: ed.kind == .mysql ? ed.password : nil)
         editor = nil
         editingId = nil
-        // 保存即连接
-        try? await app.connect(app.profiles.first { $0.id == profile.id } ?? profile)
-        dismiss()
+        // 保存即连接；失败则回到列表并显示原因（不能静默吞掉）
+        do {
+            try await app.connect(app.profiles.first { $0.id == profile.id } ?? profile)
+            dismiss()
+        } catch {
+            testMessage = "已保存档案，但连接失败：\(error.localizedDescription)"
+        }
     }
 }
